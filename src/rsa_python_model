@@ -1,0 +1,347 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Sep 25 19:04:44 2020
+
+@author: Harald Sæther and Kåre-Benjamin Hammervold Rørvik
+
+Following assignement 1, this script generates keys and tests decryption
+and encryption using the RSA principles. It takes a prompt from the user
+with the highest prime number in key calculations. Then creates keys 
+with random "legal" values based on the RSA model. Meaning the same prime 
+numbers will in most cases also result in different keys (e and d value), while
+the n will remain permanent. With both random keys, and unpredictable
+e/d values the key generator becomes a bit safer. The library secrets, 
+(adviced for crypto security) is used in place of "random" for a bit
+safer random-like performance. The keys are then used in both encryption and
+decryption to test if the message (M) has been converted to (C) and then
+unlocked (back to M). All the values of d,e,q,p,n and r are zeroed (deleted). 
+So that we cannot cheat during encryption and decryption.
+
+The indication on FPGA performance from this python script is more or less 
+hard to predict, so the time during this exercise was mostly spent reading 
+and trying to understand the concepts and principles of RSA. The aim
+for the implementation will be to fill as much as possible area (of the chip)
+while also making it as effecient as possible. Lastly the biggest takeaway
+from this python testing and reading has become the importance of 
+reducing the degree of complexity within the code. Where the exponent ** is 
+very inefecient, however no problem for python code (with reasonable keys).
+However it will become a problem for bigger keys, and more importantly FPGA
+implementation...
+
+The gen_prime function is not fully our,
+as we have adapted it to our usage and modified it. It is based on the 
+sieve of eratosthenes which is an ancient algorithm for finding prime numbers
+up to any given limit. 
+
+The comments in the code aims to explain the implementation
+and thought process.
+
+The script has been thuroughly tested and no bugs are observed, however they
+might exist, albeit well hidden as this is a random machine 
+with way too many scnearios for the developers (us) to test.
+"""
+
+from math import gcd as builtin_gcd
+import secrets
+
+"""
+Functions
+"""
+
+#Very effecient Prime Number Generator, created by David Eppstein.
+#Modified for the usage in this project. But mostly the same.
+
+def gen_primes(max_val):
+    """ Generate an infinite sequence of prime numbers.
+    """
+    # Sieve of Eratosthenes
+    # Code by David Eppstein, UC Irvine, 28 Feb 2002
+    # http://code.activestate.com/recipes/117119/
+    
+    # Maps composites to primes witnessing their compositeness.
+    # This is memory efficient, as the sieve is not "run forward"
+    # indefinitely, but only as long as required by the current
+    # number being tested.
+    #
+    D = {}
+    
+    # The running integer that's checked for primeness
+    q = 2
+    
+    for x in max_val:
+        if q not in D:
+            # q is a new prime.
+            # Yield it and mark its first multiple that isn't
+            # already marked in previous iterations
+            # 
+            yield q
+            D[q * q] = [q]
+        else:
+            # q is composite. D[q] is the list of primes that
+            # divide it. Since we've reached q, we no longer
+            # need it in the map, but we'll mark the next 
+            # multiples of its witnesses to prepare for larger
+            # numbers
+            # 
+            for p in D[q]:
+                D.setdefault(p + q, []).append(p)
+            del D[q]
+        
+        q += 1
+
+def generateRandomPrimes():
+    """ Generates random primes for q_val and p_val.
+    """
+    #Max value for the prime numbers of q and r generator
+    max_prime = int(input("Please enter max prime value: "))
+    prime_max_val = list(range(1, max_prime))
+
+    #Creates the list of primes and picks two out for q and r randomly.
+    key_primes = sorted(gen_primes(prime_max_val))
+    q_val = secrets.choice(key_primes)
+    p_val = secrets.choice(key_primes)
+    if(q_val == p_val):
+        print("__________________________ \n")
+        print("Some bad keys were generated, so we tried again... (equal q/p")
+        print("__________________________ \n")
+        print("Please Run Script Again ...")  
+        while(1):
+            print("restart me")
+    else:
+        return p_val, q_val
+
+def findLegalPrimes(r_val):
+    """ Selects a random legal prime for the public "e" key argument.
+        Based on the r_val argument.
+    """
+    #Creating a list of possible primes based on two conditions:
+    #1 < e < ϕ(n) [which is r] and GCD == 1 for the given prime. 
+    #Alternatively check coprime with N and ϕ(n)
+    #(but will be redundant because of the above).
+    
+    e_max_val = list(range(2, r_val))             
+    primes = sorted(gen_primes(e_max_val))
+    e_candidates = [] 
+    for x in range(len(primes)):
+        if(builtin_gcd(primes[x],r_val) == 1):
+            e_candidates.insert(x, primes[x])
+            return secrets.choice(e_candidates)
+
+def inverseAndMod(a, b):
+    """ takes two arguments a and b and resolves the multiplicative inverse
+    """
+    a = a % b;
+    for x in range(1, b) :
+        if ((a * x) % b == 1) :
+            return x
+
+def findR(n_val):
+    for x in range(n_val,n_val+1000):
+        if builtin_gcd(r,n_val)==1:
+            r=x
+            break
+        else:
+            r=r+1
+            
+def natrandnatn(t,p):
+    for i in range(0,t+1000):
+        for l in range(0,t+1000):
+            if(t*i-l*p==1):
+                netn=l
+                netr=i
+                
+                return netr, netn
+                break
+
+def bitfield(n):
+    return [1 if digit=='1' else 0 for digit in bin(n)[2:]]
+
+ 
+def monpro_(nata,natb,natn,n,r):
+    t=nata*natb
+    m=(t*natn)%r
+    u=(t+m*n)/r
+    #print(t,"  ",m,"  ",u)
+    if (u>=n):
+        return u-n
+    else:
+        return u   
+
+def Modexp_(M,e,n,natn,r,ei):
+    natM=M*r%n
+    natx=1*r%n
+    
+    for i in range(0,e.bit_length(),1):
+        
+        natx=monpro_(natx,natx,natn,n,r)
+        #print(natx)
+        if(ei[i]==1):
+            #print(natM,natx)     
+            natx=monpro_(natM,natx,natn,n,r)
+            
+    x=monpro_(natx,1,natn,n,r)
+    return x
+
+def rightshifteven(n):
+    for i in range(0,n.bit_length()):
+            newN=n>>i
+            if(newN&1):
+                q=newN
+                j=i
+                
+                return q,j
+                break
+
+def fixn(n):
+    if((n%2)==0):
+        [q,j]=rightshifteven(n)
+        n=q
+    else:
+        """Nothing"""
+    return n
+
+
+def crypt(n,e,M):
+    k=n.bit_length()
+    ei=bitfield(e)
+    r=pow(2,k)
+    if((n%2)==0):
+        n = fixn(n)
+        [q,j]=rightshifteven(n)
+        n=q
+        [natr,natn] = natrandnatn(r,q)
+        x_1=Modexp_(M,e,q,natn,r,ei)#does not give 78
+        v=pow(M,e)%q
+        x_2=pow(M,e)%pow(2,j)
+        z=q%pow(2,j)
+        y=(x_2-x_1)*z%pow(2,j)
+        result = x_1+q*y
+        return result
+    else:
+        #k=n.bit_length()
+        #r=pow(2,k)
+        [natr,natn] = natrandnatn(r,n)
+        result = Modexp_(M,e,n,natn,r,ei)
+        return result            
+            
+     
+
+"""
+Time to generate keys
+"""
+
+#A warm welcome
+print("__________________________ \n")
+print("Welcome to Harald & Kåre-Benjamin's RSA Code Machine")
+print("__________________________ \n")
+
+#Generating random primes for p and q
+print("You Will have to enter the max value for the prime number generator.")
+print("Higher value will bring a more complex key pair, suggested below 10k.")
+print("For instance 5000 works great! (or money back).")
+print("It will then generate random prime number below that value")
+q,p = generateRandomPrimes()
+
+#Finding n (for the key) and r (totient of n, ϕ(n))
+n = p*q
+r = (p-1)*(q-1)
+
+#Finding legal values for e based on r.
+e = findLegalPrimes(r)
+
+#Finding a d value based on e and r.
+d = inverseAndMod(e, r)
+print("__________________________ \n")
+print("Your calculations include:")
+print("p = %d q = %d" % (q, p))
+print("n = %d r = %d" % (n,r,))
+print("__________________________ \n")
+print("Your keys are:")
+print("Your Public Key is:  (%d,%d) [e,n]" %(e,n))
+print("Your Private Key is: (%d,%d) [d,n]" %(d,n))
+print("__________________________ \n")
+
+
+"""Time to encrypt and decrypt"""
+#Reset The value because we are not supposed to have them (yet)...
+
+p, q, r = 0,0,0
+
+while(1):
+    print("Insert some numbers for your spy message:")
+    M_inn = int(input("But it must be smaller than %d for it to work: " % (n)))
+    if(M_inn > n):
+        print("please choose a number (message) lesser than %d" % (n))
+        print("__________________________ \n")
+    else:
+        print("Your input was %d" % M_inn)
+        break
+
+    
+C_Out = crypt(n,e,M_inn)
+print(C_Out)
+M_Out = crypt(n,d,C_Out)
+print(M_Out)
+
+
+print("__________________________ \n")
+print("Your encrypted Message is", C_Out)
+print("We will also decrypt your message to validify the encryption")
+
+
+print("Your original message was (or should be)", M_Out)
+print("__________________________ \n")
+
+if(M_Out == M_inn):
+    print("Success!")
+else:
+    print("Something went wrong... (Have your money back)")
+print("Thanks!")
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""Some keys you can use for testing"""
+
+
+"""
+n_val = 536
+e_val = 5
+d_val = 317
+M_val = 55 
+"""
+
+
+"""
+n = 95
+e = 5
+d = 29
+M = 53
+
+Your keys are:
+Your Public Key is:  (3,7597) [e,n]
+Your Private Key is: (4947,7597) [d,n]
+
+
+"""
+
+
+
+
+
+
