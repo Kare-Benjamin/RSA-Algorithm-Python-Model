@@ -1,5 +1,4 @@
 # RSA-Algorithm-Python-Model
-A RSA Algorithm implemented with Python
 
 This is a RSA implementation which generates keys and tests decryption
 and encryption using the RSA principles. It takes a prompt from the user
